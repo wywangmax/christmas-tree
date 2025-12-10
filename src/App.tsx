@@ -54,6 +54,37 @@ const CONFIG = {
   }
 };
 
+// --- [新增] 全屏大图查看器组件 ---
+function PhotoOverlay({ url, onClose }: { url: string | null, onClose: () => void }) {
+  if (!url) return null; // 如果没有选中照片，什么都不显示
+
+  return (
+    <div 
+      onClick={onClose}
+      style={{
+        position: 'fixed', top: 0, left: 0, width: '100vw', height: '100vh',
+        backgroundColor: 'rgba(0, 0, 0, 0.85)', // 深色半透明背景
+        zIndex: 9999, // 保证在最上层，覆盖Canvas和按钮
+        display: 'flex', justifyContent: 'center', alignItems: 'center',
+        cursor: 'zoom-out', backdropFilter: 'blur(5px)'
+      }}
+    >
+      <img 
+        src={url} 
+        alt="Memory" 
+        style={{
+          maxWidth: '90%', maxHeight: '90%', 
+          border: '12px solid #FFF', borderRadius: '4px', // 模拟拍立得白边
+          boxShadow: '0 0 50px rgba(0,0,0,0.8)'
+        }} 
+        onClick={(e) => e.stopPropagation()} // 点击图片本身不关闭
+      />
+      {/* 关闭按钮 */}
+      <div style={{ position: 'absolute', top: 30, right: 30, color: 'white', fontSize: '30px', cursor: 'pointer', fontWeight: 'bold' }}>✕</div>
+    </div>
+  );
+}
+
 // --- Shader Material (Foliage) ---
 const FoliageMaterial = shaderMaterial(
   { uTime: 0, uColor: new THREE.Color(CONFIG.colors.emerald), uProgress: 0 },
@@ -124,7 +155,8 @@ const Foliage = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
 };
 
 // --- Component: Photo Ornaments (Double-Sided Polaroid) ---
-const PhotoOrnaments = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
+// [修改] 接收 onPhotoClick 属性，用于回传被点击的图片URL
+const PhotoOrnaments = ({ state, onPhotoClick }: { state: 'CHAOS' | 'FORMED', onPhotoClick: (url: string) => void }) => {
   const textures = useTexture(CONFIG.photos.body);
   const count = CONFIG.counts.ornaments;
   const groupRef = useRef<THREE.Group>(null);
@@ -197,11 +229,25 @@ const PhotoOrnaments = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
 
   return (
     <group ref={groupRef}>
-      {data.map((obj, i) => (
+      {data.map((obj, i) => {
+        // [新增] 获取当前照片对应的 URL 字符串
+        const photoUrl = CONFIG.photos.body[obj.textureIndex];
+        
+        return (
         <group key={i} scale={[obj.scale, obj.scale, obj.scale]} rotation={state === 'CHAOS' ? obj.chaosRotation : [0,0,0]}>
           {/* 正面 */}
           <group position={[0, 0, 0.015]}>
-            <mesh geometry={photoGeometry}>
+            <mesh 
+                geometry={photoGeometry}
+                // [新增] 点击事件：阻止冒泡并调用父级传递的 onPhotoClick
+                onClick={(e) => {
+                    e.stopPropagation();
+                    onPhotoClick(photoUrl);
+                }}
+                // [新增] 鼠标悬停变手型
+                onPointerOver={() => document.body.style.cursor = 'pointer'}
+                onPointerOut={() => document.body.style.cursor = 'auto'}
+            >
               <meshStandardMaterial
                 map={textures[obj.textureIndex]}
                 roughness={0.5} metalness={0}
@@ -213,7 +259,7 @@ const PhotoOrnaments = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
               <meshStandardMaterial color={obj.borderColor} roughness={0.9} metalness={0} side={THREE.FrontSide} />
             </mesh>
           </group>
-          {/* 背面 */}
+          {/* 背面 - 不添加点击事件，避免误触 */}
           <group position={[0, 0, -0.015]} rotation={[0, Math.PI, 0]}>
             <mesh geometry={photoGeometry}>
               <meshStandardMaterial
@@ -228,7 +274,7 @@ const PhotoOrnaments = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
             </mesh>
           </group>
         </group>
-      ))}
+      )})}
     </group>
   );
 };
@@ -380,7 +426,8 @@ const TopStar = ({ state }: { state: 'CHAOS' | 'FORMED' }) => {
 };
 
 // --- Main Scene Experience ---
-const Experience = ({ sceneState, rotationSpeed }: { sceneState: 'CHAOS' | 'FORMED', rotationSpeed: number }) => {
+// [修改] 接收 onPhotoClick 并透传给 PhotoOrnaments
+const Experience = ({ sceneState, rotationSpeed, onPhotoClick }: { sceneState: 'CHAOS' | 'FORMED', rotationSpeed: number, onPhotoClick: (url: string) => void }) => {
   const controlsRef = useRef<any>(null);
   useFrame(() => {
     if (controlsRef.current) {
@@ -406,7 +453,8 @@ const Experience = ({ sceneState, rotationSpeed }: { sceneState: 'CHAOS' | 'FORM
       <group position={[0, -6, 0]}>
         <Foliage state={sceneState} />
         <Suspense fallback={null}>
-           <PhotoOrnaments state={sceneState} />
+           {/* [修改] 传递点击处理函数 */}
+           <PhotoOrnaments state={sceneState} onPhotoClick={onPhotoClick} />
            <ChristmasElements state={sceneState} />
            <FairyLights state={sceneState} />
            <TopStar state={sceneState} />
@@ -422,7 +470,7 @@ const Experience = ({ sceneState, rotationSpeed }: { sceneState: 'CHAOS' | 'FORM
   );
 };
 
-// --- Gesture Controller ---
+// --- Gesture Controller (No Changes) ---
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const GestureController = ({ onGesture, onMove, onStatus, debugMode }: any) => {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -503,52 +551,29 @@ const GestureController = ({ onGesture, onMove, onStatus, debugMode }: any) => {
   );
 };
 
-// --- App Entry ---
+// --- App Entry (Main Function) ---
 export default function GrandTreeApp() {
   const [sceneState, setSceneState] = useState<'CHAOS' | 'FORMED'>('CHAOS');
   const [rotationSpeed, setRotationSpeed] = useState(0);
   const [aiStatus, setAiStatus] = useState("INITIALIZING...");
   const [debugMode, setDebugMode] = useState(false);
 
+  // [新增] 状态：当前被点击放大的照片 URL (activePhoto)
+  const [activePhoto, setActivePhoto] = useState<string | null>(null);
+
   return (
     <div style={{ width: '100vw', height: '100vh', backgroundColor: '#000', position: 'relative', overflow: 'hidden' }}>
       <div style={{ width: '100%', height: '100%', position: 'absolute', top: 0, left: 0, zIndex: 1 }}>
         <Canvas dpr={[1, 2]} gl={{ toneMapping: THREE.ReinhardToneMapping }} shadows>
-            <Experience sceneState={sceneState} rotationSpeed={rotationSpeed} />
+            {/* [修改] 将 setActivePhoto 传递给 Experience，用于接收 3D 点击事件 */}
+            <Experience sceneState={sceneState} rotationSpeed={rotationSpeed} onPhotoClick={setActivePhoto} />
         </Canvas>
       </div>
+      
+      {/* [新增] 照片大图展示层 (Overlay) - 放在 Canvas 外面 */}
+      <PhotoOverlay url={activePhoto} onClose={() => setActivePhoto(null)} />
+
       <GestureController onGesture={setSceneState} onMove={setRotationSpeed} onStatus={setAiStatus} debugMode={debugMode} />
 
       {/* UI - Stats */}
-      <div style={{ position: 'absolute', bottom: '30px', left: '40px', color: '#888', zIndex: 10, fontFamily: 'sans-serif', userSelect: 'none' }}>
-        <div style={{ marginBottom: '15px' }}>
-          <p style={{ fontSize: '10px', letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '4px' }}>Memories</p>
-          <p style={{ fontSize: '24px', color: '#FFD700', fontWeight: 'bold', margin: 0 }}>
-            {CONFIG.counts.ornaments.toLocaleString()} <span style={{ fontSize: '10px', color: '#555', fontWeight: 'normal' }}>POLAROIDS</span>
-          </p>
-        </div>
-        <div>
-          <p style={{ fontSize: '10px', letterSpacing: '2px', textTransform: 'uppercase', marginBottom: '4px' }}>Foliage</p>
-          <p style={{ fontSize: '24px', color: '#004225', fontWeight: 'bold', margin: 0 }}>
-            {(CONFIG.counts.foliage / 1000).toFixed(0)}K <span style={{ fontSize: '10px', color: '#555', fontWeight: 'normal' }}>EMERALD NEEDLES</span>
-          </p>
-        </div>
-      </div>
-
-      {/* UI - Buttons */}
-      <div style={{ position: 'absolute', bottom: '30px', right: '40px', zIndex: 10, display: 'flex', gap: '10px' }}>
-        <button onClick={() => setDebugMode(!debugMode)} style={{ padding: '12px 15px', backgroundColor: debugMode ? '#FFD700' : 'rgba(0,0,0,0.5)', border: '1px solid #FFD700', color: debugMode ? '#000' : '#FFD700', fontFamily: 'sans-serif', fontSize: '12px', fontWeight: 'bold', cursor: 'pointer', backdropFilter: 'blur(4px)' }}>
-           {debugMode ? 'HIDE DEBUG' : '🛠 DEBUG'}
-        </button>
-        <button onClick={() => setSceneState(s => s === 'CHAOS' ? 'FORMED' : 'CHAOS')} style={{ padding: '12px 30px', backgroundColor: 'rgba(0,0,0,0.5)', border: '1px solid rgba(255, 215, 0, 0.5)', color: '#FFD700', fontFamily: 'serif', fontSize: '14px', fontWeight: 'bold', letterSpacing: '3px', textTransform: 'uppercase', cursor: 'pointer', backdropFilter: 'blur(4px)' }}>
-           {sceneState === 'CHAOS' ? 'Assemble Tree' : 'Disperse'}
-        </button>
-      </div>
-
-      {/* UI - AI Status */}
-      <div style={{ position: 'absolute', top: '20px', left: '50%', transform: 'translateX(-50%)', color: aiStatus.includes('ERROR') ? '#FF0000' : 'rgba(255, 215, 0, 0.4)', fontSize: '10px', letterSpacing: '2px', zIndex: 10, background: 'rgba(0,0,0,0.5)', padding: '4px 8px', borderRadius: '4px' }}>
-        {aiStatus}
-      </div>
-    </div>
-  );
-}
+      <div style={{ position: 'absolute', bottom: '30px', left
